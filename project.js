@@ -231,6 +231,7 @@ const discover = contacts => client_pki(contacts);
 
 // Simulate example behavior from multiple clients
 setTimeout(function () {
+  console.clear();
   register('Alice');
   setTimeout(function () {
     register('Bob');
