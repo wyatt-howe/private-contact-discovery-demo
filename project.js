@@ -24,6 +24,14 @@ const socket = party_id => ({
       listeners[tag](msg);
       listeners[tag] = undefined;
     }
+  },
+  listen: function (get, tag, callback) {
+    (function register(f) {
+      get(tag).then(function (msg) {
+        f(msg);
+        register(f);
+      });
+    }(callback));
   }
 });
 
@@ -163,5 +171,77 @@ const OT = {
   }
 };
 
-OT.send('test', [6666666666, 555555555, 777777777]);
-OT.receive('test', 2, 3).then(console.log);
+// OT.send('test', [6666666666, 555555555, 777777777]);
+// OT.receive('test', 2, 3).then(console.log);
+
+
+
+
+const server_pki = function (users) {
+  console.log('server_pki', users);
+
+  // Server PKI code
+
+
+
+
+
+
+};
+
+const client_pki = function (contacts) {
+  console.log('client_pki', contacts);
+
+  return new Promise(function(resolve, reject) {
+    // Client PKI code
+    io.give('discover', contacts);
+
+
+
+
+    resolve([]);
+  });
+};
+
+
+
+// Server Code
+(function () {
+  // Service database
+  let users = [];
+
+  // Handle sign up request
+  const register = function (contact) {
+    // Add identifiable information of client such as their
+    // phone number or legal name to the server's database.
+    users.push(contact);
+  };
+
+  // Listen for client requests
+  let io = socket('server');
+  io.listen(io.get, 'register', register);
+  io.listen(io.get, 'discover', () => server_pki(users));
+}());
+
+// Client Code
+let io = socket('server');
+const register = id => io.give('register', id);
+const discover = contacts => client_pki(contacts);
+
+
+// Simulate example behavior from multiple clients
+setTimeout(function () {
+  register('Alice');
+  setTimeout(function () {
+    register('Bob');
+    setTimeout(function () {
+      register('Mayank');
+      setTimeout(function () {
+        register('Wyatt');
+        setTimeout(function () {
+          discover(['Wyatt', 'Nicolas', 'Alice']).then(console.log);
+        }, 1);
+      }, 1);
+    }, 1);
+  }, 1);
+}, 1);
