@@ -1,31 +1,31 @@
 var listeners = {};
 var mailbox = {};
-const socket = {
-  get: function (tag, party_id) {
-    console.log('get', tag);
+const socket = party_id => ({
+  get: function (tag) {
     return new Promise(function (resolve) {
-      // tag = party_id + ':' + tag;
+      tag = party_id + ':' + tag;
+      // console.log('get', tag);
       if (mailbox[tag] == null) {
         listeners[tag] = resolve;
       } else {
-        console.log('resolved', tag);
+        // console.log('resolved', tag);
         resolve(mailbox[tag]);
         mailbox[tag] = undefined;
       }
     });
   },
-  give: function (tag, msg, party_id) {
-    console.log('give', tag, msg);
-    // tag = party_id + ':' + tag;
+  give: function (tag, msg) {
+    tag = party_id + ':' + tag;
+    // console.log('give', tag, msg);
     if (listeners[tag] == null) {
       mailbox[tag] = msg;
     } else {
-      console.log('resolved', tag, msg);
+      // console.log('resolved', tag, msg);
       listeners[tag](msg);
       listeners[tag] = undefined;
     }
   }
-};
+});
 
 
 const hash = function (m) {
@@ -43,7 +43,7 @@ const hash = function (m) {
 }
 
 function encrypt_generic(plaintext, key) {
-  console.log(plaintext, key, hash(key), plaintext ^ hash(key));
+  // console.log(plaintext, key, hash(key), plaintext ^ hash(key));
   return plaintext ^ hash(key);
 }
 let decrypt_generic = encrypt_generic;
@@ -97,54 +97,71 @@ const rsa = {
 };
 
 const OT = {
-  send: function (tag, m0, m1) {
-    const _id = 0;
+  single_send: function (tag, m0, m1) {
+    let io = socket(tag);
 
     const a = rsa.random();
     const A = rsa.exp_base(a);
 
-    socket.give('A', A, _id);
-    socket.get('B', _id).then(function (B) {
+    io.give('A', A);
+    io.get('B').then(function (B) {
       let k0 = rsa.exp(B, a);
       let k1 = rsa.exp(rsa.sub(B, A), a);
 
       k0 = rsa.hash(k0);
       k1 = rsa.hash(k1);
-      console.log('k', k0, k1);
 
       const e0 = encrypt_generic(m0, k0,);
       const e1 = encrypt_generic(m1, k1);
 
-      socket.give('e', [e0, e1], _id);
+      io.give('e', [e0, e1]);
     });
   },
 
-  receive: function (tag, c) {
-    const _id = 0;
+  single_receive: function (tag, c) {
+    let io = socket(tag);
 
     const b = rsa.random();
     let B = rsa.exp_base(b);
 
     return new Promise(function (resolve) {
-      socket.get('A', _id).then(function (A) {
+      io.get('A').then(function (A) {
         if (c === 1) {
           B = rsa.add(A, B);
         }
 
-        socket.give('B', B, _id);
-        socket.get('e', _id).then(function (e) {
+        io.give('B', B);
+        io.get('e').then(function (e) {
           e = e[c];
 
           let k = rsa.exp(A, b);
           k = rsa.hash(k);
-          console.log('k', k);
 
           resolve(decrypt_generic(e, k));
         });
       });
     });
+  },
+  send: function (tag, arr) {
+    for (var i = 0; i < arr.length; i++) {
+      OT.single_send(tag + ':' + i, 0, arr[i]);
+    }
+  },
+  receive: function (tag, index, n) {
+    n = n == null ? index + 1 : n;
+    return new Promise(function(resolve) {
+      for (var i = 0; i < n; i++) {
+        if (i === index) {
+          OT.single_receive(tag + ':' + i, 1).then(function (result) {
+            resolve(result);
+          });
+        } else {
+          OT.single_receive(tag + ':' + i, 0);
+        }
+      }
+    });
   }
 };
 
-OT.send('test', 6666666666, 555555555);
-OT.receive('test', 1).then(console.log);
+OT.send('test', [6666666666, 555555555, 777777777]);
+OT.receive('test', 2, 3).then(console.log);
