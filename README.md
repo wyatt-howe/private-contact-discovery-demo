@@ -12,6 +12,6 @@ register('Bob')
 ```
 Once the dummy service has a few users, call the discover command with a contact list of potentially registerd users.
 ```javascript
-discover(['Alice', .....])
+discover(['Alice', .....]).then(console.log)
 ```
 Private contact discovery will return the ones who in fact are registered.
