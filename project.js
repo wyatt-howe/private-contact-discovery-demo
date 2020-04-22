@@ -237,10 +237,8 @@ const server_pki = function (io, users, size) {
     for (var j = 1; j < l; j++) {
       y[i] = xor_array(y[i], s[j].toString(16).padStart(12, '0'));
     }
-    console.log('y', y[i], users[i]);
   }
   y = y.map(H);
-  // console.log('y', y);
   io.give('y', y);
 
   for (var i = 0; i < size; i++) {
@@ -248,16 +246,6 @@ const server_pki = function (io, users, size) {
       OT.send('s'+i+'_'+(j/16), random.slice(j, j+n));
     }
   }
-
-
-  // let tbl = users.map(H);
-  //
-  // io.get('enc', tbl).then(function (enc) {
-  //   let res;//process enc on tbl
-  //   io.give('res', res);
-  // });
-
-
 };
 
 const client_pki = function (io, contacts) {
@@ -266,6 +254,7 @@ const client_pki = function (io, contacts) {
 
   return new Promise(function(resolve) {
     // Client PKI code
+    let discovered = [];
     io.get('y').then(function (y) {
       let l = 8;  // hash length in hex
       let hashes = contacts.map(H);
@@ -274,7 +263,6 @@ const client_pki = function (io, contacts) {
         let promise_s = [];
         for (var j = 0; j < l; j++) {
           let selection = parseInt(hash[j], 16);
-          // console.log('selection', selection);
           promise_s[j] = OT.receive('s'+i+'_'+j, selection, 16);
         }
         Promise.all(promise_s).then(function (i, s) {
@@ -283,22 +271,17 @@ const client_pki = function (io, contacts) {
             x = xor_array(x, s[j].toString(16).padStart(12, '0'));
           }
           x = H(x);
-          console.log('x', x, contacts[i], y);
+
           if (y.indexOf(x) > -1) {
-            console.log(contacts[i]);
+            discovered.push(contacts[i]);
+          }
+
+          if (i === contacts.length - 1) {
+            resolve(discovered);
           }
         }.bind(null, i));
       }
     });
-
-    // let enc;//encrypt hashes
-    //
-    // io.get('res').then(function (res) {
-    //   //process res on hashes;
-    //   //compare originals
-    //
-    //   resolve();
-    // });
   });
 };
 
