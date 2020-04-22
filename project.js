@@ -35,9 +35,8 @@ const socket = party_id => ({
   }
 });
 
-
-const hash = function (m) {
-    m = String(m) + "!!!";
+// Hash array of chars
+const H = function (m) {
     var hash = 0;
     if (m.length == 0) {
         return hash;
@@ -50,11 +49,30 @@ const hash = function (m) {
     return Math.abs(hash);
 }
 
-function encrypt_generic(plaintext, key) {
-  // console.log(plaintext, key, hash(key), plaintext ^ hash(key));
-  return plaintext ^ hash(key);
+const xor_char = (a, b) => (((parseInt(a, 16) ^ parseInt(b, 16)) + 16) % 16).toString(16);
+
+function xor_array(a, b, l) {
+  var c = "";
+  for (var i = 0; i < a.length; i++) {
+    c += xor_char(a[i], b[i]);
+  }
+  return c;
 }
-let decrypt_generic = encrypt_generic;
+
+function encrypt_generic(plaintext, key) {
+  plaintext = plaintext.toString(16).padStart(16, '0');
+  let pad = H(key.toString(16)).toString(16).padStart(16, '0');
+  let ciphertext = xor_array(plaintext, pad);
+  // console.log('enc', plaintext, key, pad, ciphertext);
+  return ciphertext;
+}
+
+function decrypt_generic(ciphertext, key) {
+  let pad = H(key.toString(16)).toString(16).padStart(16, '0');
+  let plaintext = parseInt(xor_array(ciphertext, pad), 16);
+  // console.log('dec', ciphertext, key, pad, plaintext);
+  return plaintext;
+}
 
 const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
 
@@ -76,50 +94,53 @@ const egcd = function (a, b) {
   }
 };
 
-const rsa = {
+// Multiplicative group Z*101 of order 100 and with generator g = 99
+const G = {
   p: 101,
   g: 99,
   random: function () {
-    return Math.floor(Math.random() * (rsa.p - 1)) + 1;
+    return Math.floor(Math.random() * (G.p - 1)) + 1;
   },
   add: function (a, b) {
-    return (a * b) % rsa.p;
+    return (a * b) % G.p;
   },
   inv: function (a) {
-    return (egcd(a, rsa.p).s + rsa.p) % rsa.p;
+    return (egcd(a, G.p).s + G.p) % G.p;
   },
   sub: function (a, b) {
-    return rsa.add(a, rsa.inv(b)) % rsa.p;
+    return G.add(a, G.inv(b)) % G.p;
   },
   exp: function (a, b) {
     let c = a;
     for (var i = 1; i < b; i++) {
-      c = rsa.add(c, a);
+      c = G.add(c, a);
     }
     return c;
   },
   exp_base: function (a) {
-    return rsa.exp(rsa.g, a);
+    return G.exp(G.g, a);
   },
-  hash: hash
+  point_to_hash: function (e) {
+    return H(String(e + G.p));
+  }
 };
 
 const OT = {
   single_send: function (tag, m0, m1) {
     let io = socket(tag);
 
-    const a = rsa.random();
-    const A = rsa.exp_base(a);
+    const a = G.random();
+    const A = G.exp_base(a);
 
     io.give('A', A);
     io.get('B').then(function (B) {
-      let k0 = rsa.exp(B, a);
-      let k1 = rsa.exp(rsa.sub(B, A), a);
+      let k0 = G.exp(B, a);
+      let k1 = G.exp(G.sub(B, A), a);
 
-      k0 = rsa.hash(k0);
-      k1 = rsa.hash(k1);
+      k0 = G.point_to_hash(k0);
+      k1 = G.point_to_hash(k1);
 
-      const e0 = encrypt_generic(m0, k0,);
+      const e0 = encrypt_generic(m0, k0);
       const e1 = encrypt_generic(m1, k1);
 
       io.give('e', [e0, e1]);
@@ -129,21 +150,21 @@ const OT = {
   single_receive: function (tag, c) {
     let io = socket(tag);
 
-    const b = rsa.random();
-    let B = rsa.exp_base(b);
+    const b = G.random();
+    let B = G.exp_base(b);
 
     return new Promise(function (resolve) {
       io.get('A').then(function (A) {
         if (c === 1) {
-          B = rsa.add(A, B);
+          B = G.add(A, B);
         }
 
         io.give('B', B);
         io.get('e').then(function (e) {
           e = e[c];
 
-          let k = rsa.exp(A, b);
-          k = rsa.hash(k);
+          let k = G.exp(A, b);
+          k = G.point_to_hash(k);
 
           resolve(decrypt_generic(e, k));
         });
@@ -171,35 +192,113 @@ const OT = {
   }
 };
 
-// OT.send('test', [6666666666, 555555555, 777777777]);
-// OT.receive('test', 2, 3).then(console.log);
+// let n = 10000;
+// OT.send('test', Array(n).fill(6666666666));
+// OT.receive('test', n-1, n).then(console.log);
+
+
+
+const random_bytestring = () => Math.floor(Math.random()*Math.pow(2, 48)).toString(16);
+const random_number = () => Math.floor(Math.random()*Math.pow(2, 48));
+
+const random_ot = function () {
 
 
 
 
-const server_pki = function (users) {
-  console.log('server_pki', users);
+}
+
+
+
+
+
+
+
+
+
+
+const server_pki = function (io, users, size) {
+  console.log('server_pki', users, size);
 
   // Server PKI code
+  let n = 16;  // 1-in-16 OT
+  let l = 8;  // hash length in hex
+  let random = Array.from(Array(l*n), random_number);
+
+  let y = [];
+  for (var i = 0; i < users.length; i++) {
+    let hash = H(users[i]).toString(16).padStart(l, '0');
+    let s = [];
+    for (var j = 0; j < random.length; j += n) {  // loop l times
+      let selection = parseInt(hash[j/n], 16);
+      s[j/n] = random.slice(j, j+n)[selection]
+    }
+    y[i] = s[0].toString(16).padStart(12, '0');
+    for (var j = 1; j < l; j++) {
+      y[i] = xor_array(y[i], s[j].toString(16).padStart(12, '0'));
+    }
+    console.log('y', y[i], users[i]);
+  }
+  y = y.map(H);
+  // console.log('y', y);
+  io.give('y', y);
+
+  for (var i = 0; i < size; i++) {
+    for (var j = 0; j < random.length; j += n) {  // loop l times
+      OT.send('s'+i+'_'+(j/16), random.slice(j, j+n));
+    }
+  }
 
 
-
-
+  // let tbl = users.map(H);
+  //
+  // io.get('enc', tbl).then(function (enc) {
+  //   let res;//process enc on tbl
+  //   io.give('res', res);
+  // });
 
 
 };
 
-const client_pki = function (contacts) {
+const client_pki = function (io, contacts) {
+  io.give('discover', contacts.length);
   console.log('client_pki', contacts);
 
-  return new Promise(function(resolve, reject) {
+  return new Promise(function(resolve) {
     // Client PKI code
-    io.give('discover', contacts);
+    io.get('y').then(function (y) {
+      let l = 8;  // hash length in hex
+      let hashes = contacts.map(H);
+      for (var i = 0; i < hashes.length; i++) {
+        let hash = hashes[i].toString(16).padStart(l, '0');
+        let promise_s = [];
+        for (var j = 0; j < l; j++) {
+          let selection = parseInt(hash[j], 16);
+          // console.log('selection', selection);
+          promise_s[j] = OT.receive('s'+i+'_'+j, selection, 16);
+        }
+        Promise.all(promise_s).then(function (i, s) {
+          let x = s[0].toString(16).padStart(12, '0');
+          for (var j = 1; j < l; j++) {
+            x = xor_array(x, s[j].toString(16).padStart(12, '0'));
+          }
+          x = H(x);
+          console.log('x', x, contacts[i], y);
+          if (y.indexOf(x) > -1) {
+            console.log(contacts[i]);
+          }
+        }.bind(null, i));
+      }
+    });
 
-
-
-
-    resolve([]);
+    // let enc;//encrypt hashes
+    //
+    // io.get('res').then(function (res) {
+    //   //process res on hashes;
+    //   //compare originals
+    //
+    //   resolve();
+    // });
   });
 };
 
@@ -220,13 +319,13 @@ const client_pki = function (contacts) {
   // Listen for client requests
   let io = socket('server');
   io.listen(io.get, 'register', register);
-  io.listen(io.get, 'discover', () => server_pki(users));
+  io.listen(io.get, 'discover', size => server_pki(io, users, size));
 }());
 
 // Client Code
 let io = socket('server');
 const register = id => io.give('register', id);
-const discover = contacts => client_pki(contacts);
+const discover = contacts => client_pki(io, contacts);
 
 
 // Simulate example behavior from multiple clients
