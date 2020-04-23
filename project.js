@@ -38,15 +38,11 @@ const socket = party_id => ({
  *  Symmetric Cryptography
  */
 const util = {
-  H: function (m) {  // Hash array of chars
+  H: function (m) {  // Generic hash for array of chars
       var hash = 0;
-      if (m.length == 0) {
-          return hash;
-      }
+      const compress = (h, b) => ((h<<5)-h) + b;
       for (var i = 0; i < m.length; i++) {
-          var char = m.charCodeAt(i);
-          hash = ((hash<<5)-hash)+char;
-          hash = hash & hash;  // Convert to 32-bit integer
+          hash = compress(hash, m.charCodeAt(i));
       }
       return Math.abs(hash);
   },
@@ -204,13 +200,14 @@ const OT = {
 /*
  *  Oblivious Private Set Intersection
  */
-const PKI = {
-  server_pki: function (io, users, size) {
-    console.log('server_pki', users, size);
+const PSI = {
+  server_psi: function (io, users, size) {
+    console.log('server_psi', users, size);
 
-    // Server PKI code
+    // Server PSI code
     let n = 16;  // 1-in-16 OT
-    let l = 8;  // hash length in hex
+    let l = 8;   // hash length in hex
+    let k = 12;  // prf output bits
     let random = Array.from(Array(l*n), math.random_number);
 
     let y = [];
@@ -219,11 +216,11 @@ const PKI = {
       let s = [];
       for (var j = 0; j < random.length; j += n) {  // loop l times
         let selection = parseInt(hash[j/n], 16);
-        s[j/n] = random.slice(j, j+n)[selection]
+        s[j/n] = random.slice(j, j+n)[selection];
       }
-      y[i] = s[0].toString(16).padStart(12, '0');
+      y[i] = s[0].toString(16).padStart(k, '0');
       for (var j = 1; j < l; j++) {
-        y[i] = util.xor_array(y[i], s[j].toString(16).padStart(12, '0'));
+        y[i] = util.xor_array(y[i], s[j].toString(16).padStart(k, '0'));
       }
     }
     y = y.map(util.H);
@@ -235,27 +232,29 @@ const PKI = {
       }
     }
   },
-  client_pki: function (io, contacts) {
+  client_psi: function (io, contacts) {
     io.give('discover', contacts.length);
-    console.log('client_pki', contacts);
+    console.log('client_psi', contacts);
 
     return new Promise(function(resolve) {
-      // Client PKI code
+      // Client PSI code
       let discovered = [];
       io.get('y').then(function (y) {
-        let l = 8;  // hash length in hex
+        let l = 8;   // hash length in hex
+        let k = 12;  // prf output bits
+        let n = 16;  // 1-in-16 OT
         let hashes = contacts.map(util.H);
         for (var i = 0; i < hashes.length; i++) {
           let hash = hashes[i].toString(16).padStart(l, '0');
           let promise_s = [];
           for (var j = 0; j < l; j++) {
             let selection = parseInt(hash[j], 16);
-            promise_s[j] = OT.receive('s'+i+'_'+j, selection, 16);
+            promise_s[j] = OT.receive('s'+i+'_'+j, selection, n);
           }
           Promise.all(promise_s).then(function (i, s) {
-            let x = s[0].toString(16).padStart(12, '0');
+            let x = s[0].toString(16).padStart(k, '0');
             for (var j = 1; j < l; j++) {
-              x = util.xor_array(x, s[j].toString(16).padStart(12, '0'));
+              x = util.xor_array(x, s[j].toString(16).padStart(k, '0'));
             }
             x = util.H(x);
 
@@ -291,18 +290,21 @@ const PKI = {
   // Listen for client requests
   let io = socket('server');
   io.listen(io.get, 'register', register);
-  io.listen(io.get, 'discover', size => PKI.server_pki(io, users, size));
+  io.listen(io.get, 'discover', size => PSI.server_psi(io, users, size));
 }());
 
 // Client Code
 let io = socket('server');
 const register = id => io.give('register', id);
-const discover = contacts => PKI.client_pki(io, contacts);
+const discover = contacts => PSI.client_psi(io, contacts);
 
+
+// Print an example
+console.clear();
+console.log('Example commands:\n register(\'Alice\')\n register(\'Bob\')\n register(\'Mayank\')\n register(\'Wyatt\')\n discover([\'Wyatt\', \'Nicolas\', \'Alice\']).then(console.log)')
 
 // Simulate example behavior from multiple clients
 setTimeout(function () {
-  console.clear();
   register('Alice');
   setTimeout(function () {
     register('Bob');
